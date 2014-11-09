@@ -1,15 +1,40 @@
-require(tm)
-require(tm.plugin.webmining)
-require(SnowballC)
-require(RColorBrewer)
-require(ggplot2)
-require(magrittr)
-require(wordcloud)
-require(openNLP)
+# Code to fetch news streams from 5 live sources, process the streams and text
+# and apply a simple sentiment scoring algorigthm.
+#
+# A writeup of the analysis can be found here:
+# https://www.linkedin.com/pulse/article/20141109035942-34768479-r-sentiment-scoring-hsbc-w-harvard-general-inquirer
 
-load('data/corpora.Rdat')
+# Define the packages we want to load:
+packs = c(
+  "tm",                         # Text mining
+  "tm.plugin.webmining",        # Web-source plugin for text mining
+  "SnowballC",                  # Stemmer
+  "RColorBrewer",               # Colors for visualisation
+  "ggplot2",                    # Plotting
+  "wordcloud",                  # Draw wordclouds
+  "openNLP"                     # Split text into sentences.
+)
 
-# Let's break the corpora down into sentences.
+sapply(packs, require, character.only=TRUE)   # Load the packages.
+
+# Download the corpora and insert them in a named list.
+corpora = list(
+  googlefinance = WebCorpus(GoogleFinanceSource("NYSE:HSBC")),
+  googlenews    = WebCorpus(GoogleNewsSource("HSBC")),
+  yahoofinance  = WebCorpus(YahooFinanceSource("HSBC")),
+  yahooinplay   = WebCorpus(YahooInplaySource()),
+  yahoonews     = WebCorpus(YahooNewsSource("HSBC"))
+)
+
+# Save the corpora list.
+save(corpora, file="data/corpora.Rdat")
+
+
+#load('data/corpora.Rdat')
+
+
+
+# Break the corpora down into sentences and define some functions to do so.
 
 ToSentences = function(text, language="en") {
   # Splits text into sentences using an Apache OpenNLP sentence detector.
@@ -22,7 +47,7 @@ ToSentences = function(text, language="en") {
   # sentences of the text (character vector)
   if(length(text) ==0)      {return("")}
   if(nchar(text) == 0)   {return("")}   # Cover special case 0-character text.
-
+ 
   # Convert text to String object; allows for splitting by index.
   text = as.String(text)
 
@@ -59,7 +84,7 @@ CorpusToSentences = function(corpus) {
 # into sentences.
 corpus = Reduce(c, lapply(corpora, CorpusToSentences))
 
-# Get rid of all numbers
+# Process the corpora contents.
 corpus = tm_map(corpus, removePunctuation, preserve_intra_word_dashes = TRUE)
 corpus = tm_map(corpus, content_transformer(tolower))
 corpus = tm_map(corpus, removeWords, stopwords("english"))
@@ -67,27 +92,33 @@ corpus = tm_map(corpus, removeNumbers)
 corpus = tm_map(corpus, stripWhitespace)
 
 #toString = content_transformer(function(x, from, to) gsub(from, to, x))
-#corpus = tm_map(corpus, toString, "microsoft", "msft")
+#corpus = tm_map(corpus, toString, "hsbc", "hsbc")
+
 
 # Stemming
-
 # corpus = tm_map(corpus, stemDocument)
 
-# Document term matrix
+
+# Create a document term matrix from the corpus.
 dtm = DocumentTermMatrix(corpus)
+
 # Subset the DTM to include only documents including the term "hsbc".
 dtm = dtm[rowSums(as.matrix(dtm[ , "hsbc"])) > 0, ]
 
-# Remove columns (terms) which no documents contain.
+# Remove terms which are not contained in any of the documents.
 dtm = dtm[ , colSums(as.matrix(dtm)) > 0]
 
 
 # ACQUIRING AND PROCESSING THE LEXICON.
 
-# Load the sentiment lexicon.
+# Load the sentiment lexicon (saved down in working directory as a
+# comma separated value file).
 lex = read.csv("inquirerbasic.csv", stringsAsFactors=FALSE)
 
-# Remove #1 tags
+# Collapse words with multiple entries into one entry. These are marked
+# with a trailing #1, #2, ...
+
+# Remove #1 tags. 
 lex$Entry = gsub("#1", "", lex$Entry)
 
 # Remove entries that are still numbered (i.e. two or higher)
@@ -99,17 +130,28 @@ pos.lex = tolower(lex$Entry[lex$Positiv != ""])
 
 terms = colnames(dtm)
 
+# Find the positive and negative terms using the lexicons.
 neg.terms = terms[terms %in% neg.lex]
 pos.terms = terms[terms %in% pos.lex]
 
+# Specify positive terms which may be quiestionable.
 pos.terms.adj = setdiff(pos.terms, c("equity", "share", "consensus"))
 
+# Calculate the negative and positive sentence scores ("document scores").
 neg.scores = rowSums(as.matrix(dtm[ , neg.terms]))
 pos.scores = rowSums(as.matrix(dtm[ , pos.terms]))
 
 document.scores = pos.scores - neg.scores
 
+# Calulate the document signs ("sentence signs").
 document.signs = sign(document.scores)
+
+# Calculate the sentiment score
+sentiment.score = sum(document.signs == 1) / sum(document.signs !=0)
+
+
+## Visualisation:
+
 
 # Generate word clouds (positive and negative).
 PosCloud = function() {
@@ -129,4 +171,5 @@ NegCloud = function() {
     min.freq=1,
     scale=c(4,0.7),
     color=brewer.pal(n=9, "Reds")[6:9]
+  )
 }
