@@ -1,3 +1,7 @@
+# Many thanks to Johannes Tynes, CFA for this excellent blog post
+# https://www.linkedin.com/pulse/20141109035942-34768479-r-sentiment-scoring-hsbc-w-harvard-general-inquirer/
+
+
 # Code to fetch news streams from 5 live sources, process the streams and text
 # and apply a simple sentiment scoring algorigthm.
 #
